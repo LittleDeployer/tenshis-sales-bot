@@ -1,52 +1,51 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const WebSocket = require('ws');
+const { ethers } = require('ethers');
 const axios = require('axios');
 
-// 🚀 EFFICIENT CONFIGURATION
+// 🎯 WORKING CONFIGURATION
 const CONFIG = {
     DISCORD_TOKEN: process.env.DISCORD_TOKEN,
     CHANNEL_ID: process.env.CHANNEL_ID,
     
-    // Hyperliquid WebSocket API
-    WS_URL: 'wss://api.hyperliquid.xyz/ws',
-    API_BASE: 'https://api.hyperliquid.xyz',
-    
-    // Tenshis collection
+    // Hyperliquid blockchain
+    RPC_URL: 'https://rpc.hyperliquid.xyz/evm',
     TENSHIS_CONTRACT: '0x2420DB6CF531F932ee77F4A0912A60C31251c793',
-    COLLECTION_NAME: 'tenshis',
     
-    // Subsquid GraphQL endpoint (if available)
-    SUBSQUID_ENDPOINT: process.env.SUBSQUID_ENDPOINT || null,
+    // Monitoring settings
+    CHECK_INTERVAL: 15000, // Check every 15 seconds
+    BLOCK_LOOKBACK: 100,   // Check last 100 blocks each time
+    
+    // Testing
+    TEST_MODE: process.env.TEST_MODE === 'true',
+    TEST_INTERVAL: 45000, // Test sale every 45 seconds
     
     // URLs
     DRIP_BASE_URL: 'https://drip.trade',
-    HYPERLIQUID_EXPLORER: 'https://hyperliquid.cloud.blockscout.com',
-    
-    // Performance settings
-    RECONNECT_DELAY: 5000,
-    MAX_RECONNECT_ATTEMPTS: 10
+    HYPERLIQUID_EXPLORER: 'https://hyperliquid.cloud.blockscout.com'
 };
 
-class EfficientTenshisBot {
+class WorkingTenshisBot {
     constructor() {
         this.client = new Client({
             intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
         });
         
-        this.ws = null;
-        this.wsReconnectAttempts = 0;
-        this.isConnected = false;
-        this.lastSeenSales = new Set();
-        this.startTime = new Date();
+        this.provider = new ethers.JsonRpcProvider(CONFIG.RPC_URL);
+        this.lastProcessedBlock = 0;
+        this.lastSeenTransfers = new Set();
+        this.isRunning = false;
         this.salesCount = 0;
+        this.checkCount = 0;
+        this.startTime = new Date();
         
-        console.log('🚀 Efficient Tenshis Sales Bot initialized');
-        console.log(`📋 Monitoring: ${CONFIG.TENSHIS_CONTRACT}`);
+        console.log('🎯 Working Tenshis Sales Bot initialized');
+        console.log(`📋 Contract: ${CONFIG.TENSHIS_CONTRACT}`);
+        console.log(`⏱️ Check interval: ${CONFIG.CHECK_INTERVAL / 1000}s`);
     }
 
     async initialize() {
         try {
-            // Validate config
+            // Validate environment
             if (!CONFIG.DISCORD_TOKEN || !CONFIG.CHANNEL_ID) {
                 throw new Error('❌ Missing required environment variables');
             }
@@ -57,18 +56,44 @@ class EfficientTenshisBot {
             await this.client.login(CONFIG.DISCORD_TOKEN);
             console.log('✅ Discord bot connected');
 
+            // Test blockchain connection
+            await this.testBlockchainConnection();
+
             // Send startup message
             await this.sendStartupMessage();
             
-            // Connect to Hyperliquid WebSocket
-            await this.connectWebSocket();
+            // Start monitoring
+            this.startMonitoring();
             
             // Set up health monitoring
             this.setupHealthMonitoring();
             
+            // Enable test mode if requested
+            if (CONFIG.TEST_MODE) {
+                this.setupTestMode();
+            }
+            
         } catch (error) {
             console.error('❌ Failed to initialize:', error.message);
             process.exit(1);
+        }
+    }
+
+    async testBlockchainConnection() {
+        try {
+            console.log('🔗 Testing Hyperliquid blockchain connection...');
+            
+            const currentBlock = await this.provider.getBlockNumber();
+            const network = await this.provider.getNetwork();
+            
+            console.log(`✅ Connected to Hyperliquid (Chain ID: ${network.chainId})`);
+            console.log(`📦 Current block: ${currentBlock}`);
+            
+            this.lastProcessedBlock = currentBlock;
+            
+        } catch (error) {
+            console.error('❌ Blockchain connection failed:', error.message);
+            throw error;
         }
     }
 
@@ -77,9 +102,9 @@ class EfficientTenshisBot {
             const channel = await this.client.channels.fetch(CONFIG.CHANNEL_ID);
             
             const embed = new EmbedBuilder()
-                .setTitle('⚡ Efficient Tenshis Bot Online!')
-                .setColor(0x00ff88)
-                .setDescription('Real-time Tenshis sales monitoring via Hyperliquid WebSocket')
+                .setTitle('🎯 Working Tenshis Bot Online!')
+                .setColor(0x7C3AED)
+                .setDescription('Monitoring Tenshis NFT transfers with proven blockchain polling')
                 .addFields(
                     {
                         name: '🎨 Collection',
@@ -92,28 +117,30 @@ class EfficientTenshisBot {
                         inline: true
                     },
                     {
-                        name: '⚡ Method',
-                        value: 'WebSocket + API',
+                        name: '⏱️ Check Interval',
+                        value: `${CONFIG.CHECK_INTERVAL / 1000}s`,
                         inline: true
                     },
                     {
-                        name: '🔗 WebSocket',
-                        value: 'Hyperliquid API',
+                        name: '📦 Block Lookback',
+                        value: `${CONFIG.BLOCK_LOOKBACK} blocks`,
                         inline: true
                     },
                     {
-                        name: '📊 Latency',
-                        value: '<500ms',
+                        name: '🛠️ Method',
+                        value: 'Optimized Blockchain Polling',
                         inline: true
                     },
                     {
-                        name: '🌐 Marketplace',
-                        value: '[Drip.Trade](https://drip.trade/collections/tenshis)',
+                        name: '🧪 Test Mode',
+                        value: CONFIG.TEST_MODE ? 'ON' : 'OFF',
                         inline: true
                     }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Connecting to real-time feed...' });
+                .setFooter({ 
+                    text: CONFIG.TEST_MODE ? 'Test sales will appear every 45s' : 'Ready to detect sales!'
+                });
 
             await channel.send({ embeds: [embed] });
             console.log('📢 Startup message sent');
@@ -123,414 +150,349 @@ class EfficientTenshisBot {
         }
     }
 
-    async connectWebSocket() {
-        try {
-            console.log('🔌 Connecting to Hyperliquid WebSocket...');
-            
-            this.ws = new WebSocket(CONFIG.WS_URL);
-            
-            this.ws.on('open', () => {
-                console.log('✅ WebSocket connected to Hyperliquid');
-                this.isConnected = true;
-                this.wsReconnectAttempts = 0;
-                
-                // Subscribe to marketplace events
-                this.subscribeToMarketplaceEvents();
-                
-                // Subscribe to specific collection events if possible
-                this.subscribeToCollectionEvents();
-            });
-
-            this.ws.on('message', (data) => {
-                this.handleWebSocketMessage(data);
-            });
-
-            this.ws.on('close', (code, reason) => {
-                console.log(`⚠️ WebSocket closed: ${code} - ${reason}`);
-                this.isConnected = false;
-                this.scheduleReconnect();
-            });
-
-            this.ws.on('error', (error) => {
-                console.error('❌ WebSocket error:', error.message);
-                this.isConnected = false;
-                this.scheduleReconnect();
-            });
-
-            // Connection timeout
-            setTimeout(() => {
-                if (!this.isConnected) {
-                    console.log('⏰ WebSocket connection timeout, trying alternative method...');
-                    this.fallbackToPolling();
-                }
-            }, 10000);
-            
-        } catch (error) {
-            console.error('❌ WebSocket connection failed:', error.message);
-            this.fallbackToPolling();
-        }
+    startMonitoring() {
+        if (this.isRunning) return;
+        
+        this.isRunning = true;
+        console.log(`🔍 Started monitoring every ${CONFIG.CHECK_INTERVAL / 1000} seconds`);
+        
+        // Initial check after 5 seconds
+        setTimeout(() => {
+            this.checkForTransfers();
+        }, 5000);
+        
+        // Regular monitoring
+        setInterval(() => {
+            this.checkForTransfers();
+        }, CONFIG.CHECK_INTERVAL);
     }
 
-    subscribeToMarketplaceEvents() {
+    async checkForTransfers() {
+        this.checkCount++;
+        const timestamp = new Date().toISOString();
+        
+        console.log(`🔍 [${timestamp}] Check #${this.checkCount} - Scanning for Tenshis transfers...`);
+        
         try {
-            // Subscribe to ItemSold events
-            const itemSoldSub = {
-                method: 'subscribe',
-                subscription: {
-                    type: 'nftSales',
-                    marketplace: 'drip',
-                    events: ['ItemSold', 'BidAccepted']
-                }
-            };
-
-            this.ws.send(JSON.stringify(itemSoldSub));
-            console.log('📡 Subscribed to marketplace events');
+            const currentBlock = await this.provider.getBlockNumber();
             
-        } catch (error) {
-            console.error('❌ Failed to subscribe to marketplace events:', error);
-        }
-    }
-
-    subscribeToCollectionEvents() {
-        try {
-            // Subscribe specifically to Tenshis collection
-            const collectionSub = {
-                method: 'subscribe',
-                subscription: {
-                    type: 'nftCollection',
-                    contract: CONFIG.TENSHIS_CONTRACT,
-                    events: ['Transfer', 'Sale']
-                }
-            };
-
-            this.ws.send(JSON.stringify(collectionSub));
-            console.log('📡 Subscribed to Tenshis collection events');
+            // Calculate block range
+            const fromBlock = Math.max(
+                this.lastProcessedBlock + 1,
+                currentBlock - CONFIG.BLOCK_LOOKBACK
+            );
+            const toBlock = currentBlock;
             
-        } catch (error) {
-            console.error('❌ Failed to subscribe to collection events:', error);
-        }
-    }
-
-    handleWebSocketMessage(data) {
-        try {
-            const message = JSON.parse(data.toString());
+            if (fromBlock > toBlock) {
+                console.log(`📭 No new blocks to scan`);
+                return;
+            }
             
-            // Handle different message types
-            if (message.channel === 'nftSales') {
-                this.handleSaleEvent(message.data);
-            } else if (message.channel === 'nftCollection') {
-                this.handleCollectionEvent(message.data);
-            } else if (message.type === 'subscription') {
-                console.log('✅ Subscription confirmed:', message.subscription);
+            console.log(`📦 Scanning blocks ${fromBlock} to ${toBlock} (${toBlock - fromBlock + 1} blocks)`);
+
+            // Get Transfer events for Tenshis contract
+            const transferEventSignature = ethers.id("Transfer(address,address,uint256)");
+            
+            const logs = await this.provider.getLogs({
+                address: CONFIG.TENSHIS_CONTRACT,
+                topics: [transferEventSignature],
+                fromBlock,
+                toBlock
+            });
+
+            console.log(`📋 Found ${logs.length} Transfer events`);
+
+            if (logs.length > 0) {
+                await this.processTransferEvents(logs);
             } else {
-                console.log('📨 Received message:', message.type || 'unknown');
+                console.log(`📭 No transfers found in scanned blocks`);
             }
+
+            this.lastProcessedBlock = currentBlock;
+            console.log(`✅ [${timestamp}] Check #${this.checkCount} completed successfully`);
             
         } catch (error) {
-            console.error('❌ Error parsing WebSocket message:', error);
+            console.error(`❌ [${timestamp}] Check #${this.checkCount} failed:`, error.message);
         }
     }
 
-    async handleSaleEvent(saleData) {
-        try {
-            // Check if this is a Tenshis sale
-            if (saleData.collection !== CONFIG.COLLECTION_NAME && 
-                saleData.contract !== CONFIG.TENSHIS_CONTRACT) {
-                return; // Not a Tenshis sale
-            }
+    async processTransferEvents(logs) {
+        console.log(`🔄 Processing ${logs.length} transfer events...`);
+        
+        let newSales = 0;
 
-            const saleId = this.generateSaleId(saleData);
-            
-            if (this.lastSeenSales.has(saleId)) {
-                return; // Already processed
-            }
-
-            console.log(`🎉 REAL-TIME SALE: Tenshis #${saleData.tokenId} for ${saleData.price}`);
-            
-            // Process the sale
-            await this.processSale(saleData);
-            this.lastSeenSales.add(saleId);
-            this.salesCount++;
-            
-        } catch (error) {
-            console.error('❌ Error handling sale event:', error);
-        }
-    }
-
-    async handleCollectionEvent(eventData) {
-        try {
-            if (eventData.contract !== CONFIG.TENSHIS_CONTRACT) {
-                return; // Not Tenshis
-            }
-
-            if (eventData.event === 'Transfer' && eventData.from !== '0x0000000000000000000000000000000000000000') {
-                // Potential sale - analyze further
-                console.log(`🔄 Tenshis #${eventData.tokenId} transferred, analyzing...`);
+        for (const log of logs) {
+            try {
+                // Decode Transfer event
+                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+                    ['address', 'address', 'uint256'],
+                    log.data
+                );
                 
-                const saleInfo = await this.analyzePotentialSale(eventData);
+                const [from, to, tokenId] = decoded;
                 
-                if (saleInfo.isSale) {
-                    await this.processSale(saleInfo);
+                // Skip minting (from 0x0)
+                if (from === '0x0000000000000000000000000000000000000000') {
+                    console.log(`⚪ Skipping mint: Tenshis #${tokenId.toString()}`);
+                    continue;
                 }
+
+                const transferData = {
+                    tokenId: tokenId.toString(),
+                    from,
+                    to,
+                    blockNumber: log.blockNumber,
+                    txHash: log.transactionHash,
+                    logIndex: log.logIndex
+                };
+
+                const transferId = this.generateTransferId(transferData);
+                
+                if (!this.lastSeenTransfers.has(transferId)) {
+                    console.log(`🔄 NEW TRANSFER: Tenshis #${transferData.tokenId} (Block ${transferData.blockNumber})`);
+                    console.log(`   From: ${this.shortenAddress(from)} → To: ${this.shortenAddress(to)}`);
+                    
+                    // Analyze if this is a potential sale
+                    const saleInfo = await this.analyzePotentialSale(transferData);
+                    
+                    if (saleInfo.isSale) {
+                        newSales++;
+                        console.log(`🎉 SALE DETECTED: Tenshis #${transferData.tokenId}`);
+                        console.log(`   Confidence: ${saleInfo.confidence}%`);
+                        console.log(`   Price: ${saleInfo.price || 'Unknown'}`);
+                        
+                        const enrichedSale = {
+                            ...transferData,
+                            ...saleInfo,
+                            timestamp: Date.now()
+                        };
+                        
+                        await this.postSaleToDiscord(enrichedSale);
+                        this.salesCount++;
+                    } else {
+                        console.log(`📋 Regular transfer (confidence: ${saleInfo.confidence}%)`);
+                    }
+                    
+                    this.lastSeenTransfers.add(transferId);
+                    
+                    // Small delay between processing
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+            } catch (error) {
+                console.error(`❌ Error processing transfer:`, error.message);
             }
-            
-        } catch (error) {
-            console.error('❌ Error handling collection event:', error);
+        }
+
+        if (newSales > 0) {
+            console.log(`✅ Detected and posted ${newSales} sales`);
+        }
+
+        // Memory cleanup
+        if (this.lastSeenTransfers.size > 1000) {
+            const oldTransfers = Array.from(this.lastSeenTransfers).slice(0, 500);
+            this.lastSeenTransfers = new Set(oldTransfers);
+            console.log('🧹 Cleaned up old transfers from memory');
         }
     }
 
     async analyzePotentialSale(transferData) {
         try {
-            // Get transaction details from Hyperliquid API
-            const txResponse = await axios.get(`${CONFIG.API_BASE}/info`, {
-                params: {
-                    type: 'transaction',
-                    hash: transferData.txHash
+            console.log(`🔍 Analyzing TX ${transferData.txHash.slice(0, 10)}... for sale indicators`);
+            
+            const tx = await this.provider.getTransaction(transferData.txHash);
+            const receipt = await this.provider.getTransactionReceipt(transferData.txHash);
+            
+            const analysis = {
+                isSale: false,
+                price: null,
+                marketplace: null,
+                confidence: 0
+            };
+
+            // Factor 1: Transaction has value (payment included)
+            if (tx.value && tx.value > 0) {
+                analysis.price = `${ethers.formatEther(tx.value)} HYPE`;
+                analysis.confidence += 40;
+                console.log(`   💰 Payment included: ${analysis.price} (+40%)`);
+            }
+
+            // Factor 2: Transaction involves marketplace contract
+            if (tx.to && tx.to !== CONFIG.TENSHIS_CONTRACT && tx.to !== transferData.from) {
+                const code = await this.provider.getCode(tx.to);
+                if (code !== '0x') {
+                    analysis.marketplace = tx.to;
+                    analysis.confidence += 30;
+                    console.log(`   🏪 Via marketplace: ${this.shortenAddress(tx.to)} (+30%)`);
                 }
-            });
+            }
 
-            const tx = txResponse.data;
-            
-            // Analyze if it's a marketplace sale
-            const isSale = tx.value > 0 || tx.logs.length > 2;
-            
-            return {
-                isSale,
-                tokenId: transferData.tokenId,
-                price: isSale ? `${tx.value} HYPE` : null,
-                seller: transferData.from,
-                buyer: transferData.to,
-                txHash: transferData.txHash,
-                timestamp: Date.now()
-            };
+            // Factor 3: Multiple events in transaction (marketplace complexity)
+            if (receipt.logs.length > 2) {
+                analysis.confidence += 15;
+                console.log(`   📋 Complex transaction: ${receipt.logs.length} events (+15%)`);
+            }
+
+            // Factor 4: High gas usage (marketplace transactions)
+            if (receipt.gasUsed > 80000) {
+                analysis.confidence += 15;
+                console.log(`   ⛽ High gas usage: ${receipt.gasUsed} (+15%)`);
+            }
+
+            // Determine if it's likely a sale (lowered threshold for sensitivity)
+            if (analysis.confidence >= 30) {
+                analysis.isSale = true;
+                console.log(`   ✅ LIKELY SALE (${analysis.confidence}% confidence)`);
+            } else {
+                console.log(`   📊 Probably transfer (${analysis.confidence}% confidence)`);
+            }
+
+            return analysis;
             
         } catch (error) {
-            console.error('❌ Error analyzing transfer:', error);
-            return { isSale: false };
-        }
-    }
-
-    async processSale(saleData) {
-        try {
-            console.log(`📤 Processing sale: Tenshis #${saleData.tokenId}`);
-            
-            // Enrich sale data
-            const enrichedSale = await this.enrichSaleData(saleData);
-            
-            // Post to Discord
-            await this.postSaleToDiscord(enrichedSale);
-            
-            // Log success
-            console.log(`✅ Posted Tenshis #${saleData.tokenId} sale to Discord`);
-            
-        } catch (error) {
-            console.error('❌ Error processing sale:', error);
-        }
-    }
-
-    async enrichSaleData(saleData) {
-        try {
-            // Get additional data from Drip.Trade API
-            const tokenResponse = await axios.get(`${CONFIG.DRIP_BASE_URL}/api/token/${CONFIG.COLLECTION_NAME}/${saleData.tokenId}`, {
-                timeout: 3000
-            });
-
-            return {
-                ...saleData,
-                metadata: tokenResponse.data,
-                rarity: tokenResponse.data.rarity || null,
-                traits: tokenResponse.data.traits || null
-            };
-            
-        } catch (error) {
-            console.log('⚠️ Could not enrich sale data, using basic info');
-            return saleData;
+            console.error(`❌ Error analyzing transaction:`, error.message);
+            return { isSale: false, price: null, marketplace: null, confidence: 0 };
         }
     }
 
     async postSaleToDiscord(saleData) {
-        const channel = await this.client.channels.fetch(CONFIG.CHANNEL_ID);
-        
-        const embed = new EmbedBuilder()
-            .setTitle(`🎉 Tenshis #${saleData.tokenId} Sold!`)
-            .setColor(0x00ff88)
-            .setTimestamp()
-            .addFields(
-                {
-                    name: '💰 Sale Price',
-                    value: saleData.price || 'Unknown',
-                    inline: true
-                },
-                {
-                    name: '👤 Seller',
-                    value: saleData.seller ? `\`${this.shortenAddress(saleData.seller)}\`` : 'Unknown',
-                    inline: true
-                },
-                {
-                    name: '🛒 Buyer',
-                    value: saleData.buyer ? `\`${this.shortenAddress(saleData.buyer)}\`` : 'Unknown',
-                    inline: true
-                }
-            );
-
-        // Add rarity if available
-        if (saleData.rarity) {
-            embed.addFields({
-                name: '✨ Rarity',
-                value: saleData.rarity,
-                inline: true
-            });
-        }
-
-        // Add transaction link
-        if (saleData.txHash) {
-            embed.addFields({
-                name: '🔗 Transaction',
-                value: `[View on Explorer](${CONFIG.HYPERLIQUID_EXPLORER}/tx/${saleData.txHash})`,
-                inline: true
-            });
-        }
-
-        // Add marketplace link
-        embed.addFields({
-            name: '🏪 Marketplace',
-            value: `[View on Drip.Trade](${CONFIG.DRIP_BASE_URL}/collections/${CONFIG.COLLECTION_NAME}/${saleData.tokenId})`,
-            inline: true
-        });
-
-        // Add image if available
-        if (saleData.metadata && saleData.metadata.image) {
-            embed.setThumbnail(saleData.metadata.image);
-        }
-
-        embed.setFooter({
-            text: `⚡ Real-time WebSocket • Sale #${this.salesCount}`,
-            iconURL: 'https://drip.trade/favicon.ico'
-        });
-
-        await channel.send({ embeds: [embed] });
-    }
-
-    scheduleReconnect() {
-        if (this.wsReconnectAttempts >= CONFIG.MAX_RECONNECT_ATTEMPTS) {
-            console.error('❌ Max reconnection attempts reached, falling back to polling');
-            this.fallbackToPolling();
-            return;
-        }
-
-        this.wsReconnectAttempts++;
-        const delay = CONFIG.RECONNECT_DELAY * Math.pow(2, this.wsReconnectAttempts - 1);
-        
-        console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.wsReconnectAttempts}/${CONFIG.MAX_RECONNECT_ATTEMPTS})`);
-        
-        setTimeout(() => {
-            this.connectWebSocket();
-        }, delay);
-    }
-
-    async fallbackToPolling() {
-        console.log('🔄 Falling back to API polling method...');
-        
-        // Check Subsquid endpoint if available
-        if (CONFIG.SUBSQUID_ENDPOINT) {
-            this.setupSubsquidPolling();
-        } else {
-            this.setupHyperliquidPolling();
-        }
-    }
-
-    setupSubsquidPolling() {
-        console.log('📊 Setting up Subsquid GraphQL polling...');
-        
-        setInterval(async () => {
-            try {
-                const query = `
-                    query {
-                        itemSolds(
-                            where: { nftContract: "${CONFIG.TENSHIS_CONTRACT}" }
-                            orderBy: timestamp_DESC
-                            limit: 10
-                        ) {
-                            id
-                            tokenId
-                            seller
-                            buyer
-                            price
-                            timestamp
-                            transactionHash
-                        }
+        try {
+            console.log(`📤 Posting Tenshis #${saleData.tokenId} sale to Discord...`);
+            
+            const channel = await this.client.channels.fetch(CONFIG.CHANNEL_ID);
+            
+            const embed = new EmbedBuilder()
+                .setTitle(`${saleData.isTest ? '🧪 TEST: ' : '🎉 '}Tenshis #${saleData.tokenId} Sale Detected!`)
+                .setColor(saleData.isTest ? 0xffaa00 : 0x7C3AED)
+                .setTimestamp()
+                .addFields(
+                    {
+                        name: '🆔 Token ID',
+                        value: saleData.tokenId,
+                        inline: true
+                    },
+                    {
+                        name: '💰 Price',
+                        value: saleData.price || 'Unknown',
+                        inline: true
+                    },
+                    {
+                        name: '📊 Confidence',
+                        value: `${saleData.confidence || 100}%`,
+                        inline: true
+                    },
+                    {
+                        name: '👤 From',
+                        value: `\`${this.shortenAddress(saleData.from)}\``,
+                        inline: true
+                    },
+                    {
+                        name: '🛒 To',
+                        value: `\`${this.shortenAddress(saleData.to)}\``,
+                        inline: true
+                    },
+                    {
+                        name: '📦 Block',
+                        value: saleData.blockNumber ? saleData.blockNumber.toString() : 'Test',
+                        inline: true
                     }
-                `;
+                );
 
-                const response = await axios.post(CONFIG.SUBSQUID_ENDPOINT, { query });
-                const sales = response.data.data.itemSolds;
-
-                for (const sale of sales) {
-                    const saleId = this.generateSaleId(sale);
-                    
-                    if (!this.lastSeenSales.has(saleId)) {
-                        console.log(`🎉 SUBSQUID SALE: Tenshis #${sale.tokenId}`);
-                        await this.processSale(sale);
-                        this.lastSeenSales.add(saleId);
-                    }
-                }
-                
-            } catch (error) {
-                console.error('❌ Subsquid polling error:', error);
-            }
-        }, 5000); // Poll every 5 seconds
-    }
-
-    setupHyperliquidPolling() {
-        console.log('📡 Setting up Hyperliquid API polling...');
-        
-        setInterval(async () => {
-            try {
-                // Check for recent marketplace activity
-                const response = await axios.get(`${CONFIG.API_BASE}/info`, {
-                    params: {
-                        type: 'nftActivity',
-                        collection: CONFIG.COLLECTION_NAME,
-                        limit: 20
-                    }
+            // Add transaction link
+            if (saleData.txHash && !saleData.isTest) {
+                embed.addFields({
+                    name: '🔗 Transaction',
+                    value: `[View on Explorer](${CONFIG.HYPERLIQUID_EXPLORER}/tx/${saleData.txHash})`,
+                    inline: true
                 });
+            }
 
-                const activities = response.data;
+            // Add marketplace link
+            if (!saleData.isTest) {
+                embed.addFields({
+                    name: '🏪 Marketplace',
+                    value: `[View on Drip.Trade](${CONFIG.DRIP_BASE_URL}/collections/tenshis/${saleData.tokenId})`,
+                    inline: true
+                });
+            }
+
+            // Add marketplace contract if detected
+            if (saleData.marketplace) {
+                embed.addFields({
+                    name: '🏪 Marketplace Contract',
+                    value: `\`${this.shortenAddress(saleData.marketplace)}\``,
+                    inline: true
+                });
+            }
+
+            embed.setFooter({
+                text: saleData.isTest ? 
+                    `🧪 Test Sale #${this.salesCount} • Testing System` : 
+                    `⛓️ Blockchain Detection • Check #${this.checkCount}`,
+                iconURL: 'https://drip.trade/favicon.ico'
+            });
+
+            await channel.send({ embeds: [embed] });
+            console.log(`✅ Posted Tenshis #${saleData.tokenId} sale to Discord`);
+            
+        } catch (error) {
+            console.error('❌ Error posting to Discord:', error);
+        }
+    }
+
+    setupTestMode() {
+        console.log('🧪 TEST MODE ENABLED - Simulating sales every 45 seconds');
+        
+        let testNumber = 1;
+        
+        setInterval(async () => {
+            try {
+                const testSale = {
+                    tokenId: (2000 + testNumber).toString(),
+                    price: `${(Math.random() * 1.5 + 0.2).toFixed(3)} HYPE`,
+                    from: '0x' + Math.random().toString(16).substring(2, 42),
+                    to: '0x' + Math.random().toString(16).substring(2, 42),
+                    txHash: '0x' + Math.random().toString(16).substring(2, 66),
+                    confidence: 85,
+                    marketplace: '0x' + Math.random().toString(16).substring(2, 42),
+                    timestamp: Date.now(),
+                    isTest: true
+                };
+
+                console.log(`🧪 SIMULATING TEST SALE: Tenshis #${testSale.tokenId} for ${testSale.price}`);
                 
-                for (const activity of activities) {
-                    if (activity.type === 'sale' && activity.contract === CONFIG.TENSHIS_CONTRACT) {
-                        const saleId = this.generateSaleId(activity);
-                        
-                        if (!this.lastSeenSales.has(saleId)) {
-                            console.log(`🎉 API SALE: Tenshis #${activity.tokenId}`);
-                            await this.processSale(activity);
-                            this.lastSeenSales.add(saleId);
-                        }
-                    }
-                }
+                await this.postSaleToDiscord(testSale);
+                this.salesCount++;
+                testNumber++;
                 
             } catch (error) {
-                console.error('❌ API polling error:', error);
+                console.error('❌ Test sale simulation failed:', error);
             }
-        }, 10000); // Poll every 10 seconds
+        }, CONFIG.TEST_INTERVAL);
     }
 
     setupHealthMonitoring() {
-        // Health check every 5 minutes
+        // Health check every 10 minutes
         setInterval(async () => {
             const uptime = Math.floor((Date.now() - this.startTime) / 1000 / 60);
-            console.log(`💓 Health: ${uptime}min uptime, ${this.salesCount} sales detected, WebSocket: ${this.isConnected ? 'Connected' : 'Disconnected'}`);
+            console.log(`💓 Health: ${uptime}min uptime, ${this.checkCount} checks, ${this.salesCount} sales detected`);
             
             try {
+                const currentBlock = await this.provider.getBlockNumber();
                 const channel = await this.client.channels.fetch(CONFIG.CHANNEL_ID);
                 
                 const embed = new EmbedBuilder()
                     .setTitle('💓 Tenshis Bot Health Check')
-                    .setColor(this.isConnected ? 0x00ff00 : 0xffaa00)
+                    .setColor(0x00ff00)
                     .addFields(
                         {
                             name: '⏱️ Uptime',
                             value: `${uptime} minutes`,
+                            inline: true
+                        },
+                        {
+                            name: '🔍 Checks Completed',
+                            value: this.checkCount.toString(),
                             inline: true
                         },
                         {
@@ -539,29 +501,34 @@ class EfficientTenshisBot {
                             inline: true
                         },
                         {
-                            name: '🔗 WebSocket',
-                            value: this.isConnected ? 'Connected' : 'Reconnecting...',
+                            name: '📦 Current Block',
+                            value: currentBlock.toString(),
                             inline: true
                         },
                         {
-                            name: '📊 Method',
-                            value: this.isConnected ? 'Real-time WebSocket' : 'API Polling',
+                            name: '📍 Last Processed',
+                            value: this.lastProcessedBlock.toString(),
+                            inline: true
+                        },
+                        {
+                            name: '🧪 Test Mode',
+                            value: CONFIG.TEST_MODE ? 'Active' : 'Off',
                             inline: true
                         }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Automated health check' });
+                    .setFooter({ text: 'Automated health monitoring' });
 
                 await channel.send({ embeds: [embed] });
                 
             } catch (error) {
                 console.error('❌ Health check failed:', error);
             }
-        }, 5 * 60 * 1000);
+        }, 10 * 60 * 1000);
     }
 
-    generateSaleId(sale) {
-        return `${sale.tokenId}-${sale.price}-${sale.timestamp || Date.now()}`;
+    generateTransferId(transfer) {
+        return `${transfer.txHash}-${transfer.logIndex}`;
     }
 
     shortenAddress(address) {
@@ -578,10 +545,11 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => {
     res.json({
         status: 'online',
-        bot: 'Efficient Tenshis Sales Monitor',
-        method: 'WebSocket + API hybrid',
-        websocket: 'wss://api.hyperliquid.xyz/ws',
+        bot: 'Working Tenshis Sales Monitor',
+        method: 'Optimized blockchain polling',
         contract: CONFIG.TENSHIS_CONTRACT,
+        checkInterval: `${CONFIG.CHECK_INTERVAL / 1000}s`,
+        testMode: CONFIG.TEST_MODE,
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
     });
@@ -590,14 +558,14 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'healthy', 
-        method: 'websocket-hybrid',
+        method: 'blockchain-polling',
         timestamp: new Date().toISOString() 
     });
 });
 
 // Main function
 async function main() {
-    console.log('🚀 Starting Efficient Tenshis Sales Bot...');
+    console.log('🚀 Starting Working Tenshis Sales Bot...');
     
     // Start health server
     app.listen(PORT, () => {
@@ -605,13 +573,12 @@ async function main() {
     });
     
     // Start bot
-    const bot = new EfficientTenshisBot();
+    const bot = new WorkingTenshisBot();
     await bot.initialize();
     
     // Graceful shutdown
     const shutdown = () => {
-        console.log('📴 Shutting down...');
-        if (bot.ws) bot.ws.close();
+        console.log('📴 Shutting down gracefully...');
         bot.client.destroy();
         process.exit(0);
     };
@@ -634,4 +601,4 @@ if (require.main === module) {
     main().catch(console.error);
 }
 
-module.exports = { EfficientTenshisBot };
+module.exports = { WorkingTenshisBot };
