@@ -223,22 +223,55 @@ class WorkingTenshisBot {
 
         for (const log of logs) {
             try {
-                // Decode Transfer event
-                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
-                    ['address', 'address', 'uint256'],
-                    log.data
-                );
+                console.log(`🔍 Processing log: ${JSON.stringify({
+                    address: log.address,
+                    topics: log.topics,
+                    data: log.data,
+                    blockNumber: log.blockNumber,
+                    txHash: log.transactionHash
+                })}`);
+
+                // Decode Transfer event - handle both indexed and non-indexed versions
+                let from, to, tokenId;
                 
-                const [from, to, tokenId] = decoded;
+                if (log.topics.length >= 4) {
+                    // Standard ERC-721: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+                    from = ethers.getAddress('0x' + log.topics[1].slice(26)); // Remove padding
+                    to = ethers.getAddress('0x' + log.topics[2].slice(26));   // Remove padding
+                    tokenId = BigInt(log.topics[3]).toString();              // TokenId from topics
+                    console.log(`📋 Decoded from topics: from=${from}, to=${to}, tokenId=${tokenId}`);
+                } else if (log.data && log.data !== '0x' && log.data.length > 2) {
+                    // Non-standard format - try to decode from data
+                    try {
+                        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+                            ['address', 'address', 'uint256'],
+                            log.data
+                        );
+                        [from, to, tokenId] = [decoded[0], decoded[1], decoded[2].toString()];
+                        console.log(`📋 Decoded from data: from=${from}, to=${to}, tokenId=${tokenId}`);
+                    } catch (dataError) {
+                        console.log(`⚠️ Could not decode from data, trying topics...`);
+                        if (log.topics.length >= 3) {
+                            from = '0x' + log.topics[1].slice(26);
+                            to = '0x' + log.topics[2].slice(26);
+                            tokenId = log.topics[3] ? BigInt(log.topics[3]).toString() : 'Unknown';
+                            console.log(`📋 Decoded from topics (fallback): from=${from}, to=${to}, tokenId=${tokenId}`);
+                        } else {
+                            throw new Error(`Cannot decode transfer event: insufficient topics and data`);
+                        }
+                    }
+                } else {
+                    throw new Error(`Transfer event has no usable data: topics=${log.topics.length}, data=${log.data}`);
+                }
                 
                 // Skip minting (from 0x0)
                 if (from === '0x0000000000000000000000000000000000000000') {
-                    console.log(`⚪ Skipping mint: Tenshis #${tokenId.toString()}`);
+                    console.log(`⚪ Skipping mint: Tenshis #${tokenId}`);
                     continue;
                 }
 
                 const transferData = {
-                    tokenId: tokenId.toString(),
+                    tokenId: tokenId,
                     from,
                     to,
                     blockNumber: log.blockNumber,
@@ -277,10 +310,15 @@ class WorkingTenshisBot {
                     
                     // Small delay between processing
                     await new Promise(resolve => setTimeout(resolve, 100));
+                } else {
+                    console.log(`📋 Already processed: ${transferId}`);
                 }
                 
             } catch (error) {
                 console.error(`❌ Error processing transfer:`, error.message);
+                console.error(`❌ Log details:`, JSON.stringify(log, null, 2));
+                // Continue processing other events instead of failing
+                continue;
             }
         }
 
