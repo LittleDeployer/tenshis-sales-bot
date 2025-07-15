@@ -510,7 +510,7 @@ class WorkingTenshisBot {
     }
 
     setupHealthMonitoring() {
-        // Health check every 10 minutes
+        // Health check every 12 hours
         setInterval(async () => {
             const uptime = Math.floor((Date.now() - this.startTime) / 1000 / 60);
             console.log(`💓 Health: ${uptime}min uptime, ${this.checkCount} checks, ${this.salesCount} sales detected`);
@@ -555,14 +555,15 @@ class WorkingTenshisBot {
                         }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Automated health monitoring' });
+                    .setFooter({ text: 'Automated health monitoring • Every 12 hours' });
 
                 await channel.send({ embeds: [embed] });
                 
             } catch (error) {
                 console.error('❌ Health check failed:', error);
             }
-        }, 10 * 60 * 1000);
+        }, 12 * 60 * 60 * 1000); // 12 hours = 12 * 60 * 60 * 1000 milliseconds
+    }
     }
 
     generateTransferId(transfer) {
