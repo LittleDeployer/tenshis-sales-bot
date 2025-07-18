@@ -564,7 +564,6 @@ class WorkingTenshisBot {
             }
         }, 12 * 60 * 60 * 1000); // 12 hours = 12 * 60 * 60 * 1000 milliseconds
     }
-    }
 
     generateTransferId(transfer) {
         return `${transfer.txHash}-${transfer.logIndex}`;
